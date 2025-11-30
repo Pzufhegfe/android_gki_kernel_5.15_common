@@ -204,6 +204,10 @@ jobs:
             echo "Removed stale drivers/kernelsu/Kconfig reference from drivers/Kconfig"
         fi
         
+        # Clean up any potential broken symlinks or stale directories
+        # The error 'symlink has no referent: .../drivers/kernelsu' suggests a broken link or case mismatch
+        rm -rf drivers/kernelsu
+        
         # Add symbol to KMI allowlist if needed (KernelSU setup.sh usually does this)
         # We already did this in 'Apply Fixes' step for task_is_booster, 
         # but let's ensure KernelSU symbols are handled if KSU provides a script.
