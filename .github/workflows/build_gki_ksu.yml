@@ -178,8 +178,12 @@ jobs:
         # Remove existing directory if it exists
         rm -rf KernelSU
         
-        # Clone with depth=1
-        git clone https://github.com/tiann/KernelSU -b "$KSU_BRANCH" --depth=1 KernelSU
+        # Clone KernelSU (without --depth=1 to ensure correct version calculation)
+        git clone https://github.com/tiann/KernelSU -b "$KSU_BRANCH" KernelSU
+        
+        # Move KernelSU to drivers directory
+        # The build system expects drivers/KernelSU/Makefile to exist
+        mv KernelSU drivers/KernelSU
         
         # Add to drivers/Makefile if not present
         # We use 'obj-y' to force include it, avoiding Kconfig dependency issues
