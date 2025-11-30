@@ -1891,7 +1891,6 @@ out_unmark:
 	return retval;
 }
 
-
 static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr argv,
 			      struct user_arg_ptr envp,
@@ -1899,7 +1898,6 @@ static int do_execveat_common(int fd, struct filename *filename,
 {
 	struct linux_binprm *bprm;
 	int retval;
-
 
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
