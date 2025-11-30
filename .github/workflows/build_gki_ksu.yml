@@ -239,8 +239,8 @@ jobs:
           export KSU_EXPECTED_SIZE=${{ vars.EXPECTED_SIZE }}
           export KSU_EXPECTED_HASH=${{ vars.EXPECTED_HASH }}
         fi
-        # Build with Bazel
-        tools/bazel run --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
+        # Build with Bazel (use --config=fast for speed, cannot use with --config=stamp)
+        tools/bazel run --config=fast --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
 
     - name: Package Kernel
       run: |
