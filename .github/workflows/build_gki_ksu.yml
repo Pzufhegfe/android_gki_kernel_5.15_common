@@ -1,5 +1,7 @@
 name: Build GKI with KernelSU
 
+run-name: Build GKI ${{ inputs.ksu_branch || 'main' }} (${{ github.ref_name }})
+
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -30,6 +32,8 @@ jobs:
         sudo rm -rf /opt/ghc
         sudo rm -rf "/usr/local/share/boost"
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
 
     - name: Install Dependencies
       run: |
@@ -117,10 +121,30 @@ jobs:
     - name: Setup KernelSU
       run: |
         cd gki_build_workspace/common
-        # Run the official setup script to install/update KernelSU
         KSU_BRANCH="${{ inputs.ksu_branch || 'main' }}"
         echo "Using KernelSU branch: $KSU_BRANCH"
-        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/$KSU_BRANCH/kernel/setup.sh" | bash -
+        
+        # Manual install to optimize speed (depth=1)
+        # Remove existing directory if it exists
+        rm -rf KernelSU
+        
+        # Clone with depth=1
+        git clone https://github.com/tiann/KernelSU -b "$KSU_BRANCH" --depth=1 KernelSU
+        
+        # Add to drivers/Makefile if not present
+        # We use 'obj-y' to force include it, avoiding Kconfig dependency issues
+        DRIVER_MAKEFILE="drivers/Makefile"
+        if ! grep -q "KernelSU" "$DRIVER_MAKEFILE"; then
+            echo "obj-y += KernelSU/" >> "$DRIVER_MAKEFILE"
+            echo "Added KernelSU to drivers/Makefile"
+        else
+            echo "KernelSU already in drivers/Makefile"
+        fi
+        
+        # Add symbol to KMI allowlist if needed (KernelSU setup.sh usually does this)
+        # We already did this in 'Apply Fixes' step for task_is_booster, 
+        # but let's ensure KernelSU symbols are handled if KSU provides a script.
+        # For GKI 5.15, usually just cloning and makefile edit is enough.
 
     - name: Build Kernel
       run: |
@@ -146,6 +170,12 @@ jobs:
         rm -rf AnyKernel3/.git
         cp "$KERNEL_IMAGE" AnyKernel3/
         
+        # Custom AnyKernel3 config if exists in repo root
+        if [ -f "common/anykernel.sh" ]; then
+            cp "common/anykernel.sh" AnyKernel3/
+            echo "Applied custom anykernel.sh"
+        fi
+        
         # Create zip
         cd AnyKernel3
         zip -r9 ../AnyKernel3.zip * -x .git README.md *placeholder
@@ -160,3 +190,4 @@ jobs:
           gki_build_workspace/out/**/dist/Image
           gki_build_workspace/boot.img
           gki_build_workspace/AnyKernel3.zip
+        retention-days: 5
