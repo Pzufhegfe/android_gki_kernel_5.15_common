@@ -176,6 +176,53 @@ jobs:
             sed -i 's/export LOCALVERSION="-maybe-dirty"/export LOCALVERSION=""/' "$STAMP_BZL"
         fi
 
+    - name: Fix Clang Toolchain
+      run: |
+        cd gki_build_workspace
+        CLANG_DIR="prebuilts/clang/host/linux-x86"
+        CLANG_VER="clang-r547379"
+        
+        # Check if Clang exists
+        if [ ! -d "$CLANG_DIR/$CLANG_VER" ]; then
+            echo "Clang $CLANG_VER not found in workspace. Downloading..."
+            mkdir -p "$CLANG_DIR/$CLANG_VER"
+            
+            # Try downloading tarball from Google Source (Much faster than git fetch)
+            DOWNLOAD_SUCCESS=false
+            for BRANCH in master main; do
+                echo "Attempting to download tarball from $BRANCH..."
+                if curl -fL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/$BRANCH/$CLANG_VER.tar.gz" -o clang.tar.gz; then
+                    echo "Download success from $BRANCH."
+                    DOWNLOAD_SUCCESS=true
+                    break
+                fi
+            done
+            
+            if [ "$DOWNLOAD_SUCCESS" = true ]; then
+                echo "Extracting..."
+                tar -xzf clang.tar.gz -C "$CLANG_DIR/$CLANG_VER"
+                rm clang.tar.gz
+            else
+                echo "Tarball download failed. Falling back to slow git fetch..."
+                cd "$CLANG_DIR"
+                if [ ! -d ".git" ]; then
+                    git init
+                    git remote add origin "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
+                fi
+                git fetch --depth 1 origin master
+                git checkout FETCH_HEAD -- "$CLANG_VER"
+                cd ../../../..
+            fi
+            
+            # Create BUILD file for Bazel if missing
+            if [ ! -f "$CLANG_DIR/$CLANG_VER/BUILD" ] && [ ! -f "$CLANG_DIR/$CLANG_VER/BUILD.bazel" ]; then
+                echo "Creating dummy BUILD file for Clang..."
+                touch "$CLANG_DIR/$CLANG_VER/BUILD"
+            fi
+        else
+            echo "Clang $CLANG_VER already exists."
+        fi
+
     - name: Make working directory clean
       run: |
         cd gki_build_workspace/common
