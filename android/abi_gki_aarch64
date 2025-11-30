@@ -1,28 +1,45 @@
 [abi_symbol_list]
 # commonly used symbols
-  arm64_const_caps_ready
+  __ClearPageMovable
+  __SetPageMovable
+  __alloc_pages
+  __alloc_percpu
+  __blk_alloc_disk
+  __class_register
+  __cpu_possible_mask
   __cpuhp_remove_state
   __cpuhp_setup_state
-  cpu_hwcap_keys
-  kasan_flag_enabled
-  kfree
-  kmalloc_caches
-  kmem_cache_alloc_trace
-  memcpy
-  module_layout
+  __cpuhp_state_add_instance
+  __cpuhp_state_remove_instance
+  __free_pages
+  __get_free_pages
+  __init_rwsem
+  __init_waitqueue_head
+  __list_add_valid
+  __list_del_entry_valid
+  __num_online_cpus
   __per_cpu_offset
-  preempt_schedule
-  _printk
+  __put_page
   __put_task_struct
+  __register_blkdev
   __stack_chk_fail
   __ubsan_handle_cfi_check_fail_abort
-
-# required by zram.ko
-  __alloc_percpu
-  bio_endio
+  __wake_up
+  _printk
+  _raw_read_lock
+  _raw_read_unlock
+  _raw_spin_lock
+  _raw_spin_unlock
+  _raw_write_lock
+  _raw_write_unlock
+  alloc_anon_inode
+  android_kmalloc_64_create
+  arm64_const_caps_ready
+  bio_alloc_bioset
+  bio_chain
   bio_end_io_acct_remapped
+  bio_endio
   bio_start_io_acct
-  __blk_alloc_disk
   blk_cleanup_disk
   blk_queue_flag_clear
   blk_queue_flag_set
@@ -32,47 +49,73 @@
   blk_queue_max_discard_sectors
   blk_queue_max_write_zeroes_sectors
   blk_queue_physical_block_size
-  __class_register
+  blk_status_to_errno
   class_unregister
-  __cpuhp_state_add_instance
-  __cpuhp_state_remove_instance
+  contig_page_data
+  cpu_hwcap_keys
   cpumask_next
-  __cpu_possible_mask
   crypto_alloc_base
   crypto_comp_compress
   crypto_comp_decompress
   crypto_destroy_tfm
   crypto_has_alg
+  dec_zone_page_state
   del_gendisk
   device_add_disk
   disk_end_io_acct
   disk_start_io_acct
   down_read
   down_write
+  filp_close
+  filp_open_block
+  finish_wait
   flush_dcache_page
+  flush_work
   free_pages
   free_percpu
+  fs_bio_set
   fsync_bdev
-  __get_free_pages
   idr_alloc
   idr_destroy
   idr_find
   idr_for_each
   idr_remove
-  __init_rwsem
+  inc_zone_page_state
+  init_pseudo
+  init_wait_entry
+  iput
+  kasan_flag_enabled
+  kern_mount
+  kern_unmount
+  kfree
+  kill_anon_super
+  kmalloc_caches
+  kmem_cache_alloc
+  kmem_cache_alloc_trace
+  kmem_cache_create
+  kmem_cache_destroy
+  kmem_cache_free
+  kstrdup
   kstrtoint
   kstrtou16
   kstrtoull
+  memcpy
   memparse
   memset64
+  memstart_addr
+  module_layout
   mutex_is_locked
   mutex_lock
   mutex_unlock
   nr_cpu_ids
-  __num_online_cpus
   page_endio
+  page_mapping
   param_ops_uint
-  __register_blkdev
+  preempt_schedule
+  prepare_to_wait_event
+  queue_work_on
+  register_shrinker
+  schedule
   scnprintf
   set_capacity
   set_capacity_and_notify
@@ -81,12 +124,17 @@
   strcpy
   strlcpy
   strlen
+  submit_bio
   sysfs_streq
+  system_wq
+  unlock_page
   unregister_blkdev
+  unregister_shrinker
   up_read
   up_write
   vfree
   vzalloc
+  wait_on_page_bit
   zs_compact
   zs_create_pool
   zs_destroy_pool
@@ -98,50 +146,6 @@
   zs_pool_stats
   zs_unmap_object
 
-# required by zsmalloc.ko
-  alloc_anon_inode
-  __alloc_pages
-  __ClearPageMovable
-  contig_page_data
-  dec_zone_page_state
-  finish_wait
-  flush_work
-  __free_pages
-  inc_zone_page_state
-  init_pseudo
-  init_wait_entry
-  __init_waitqueue_head
-  iput
-  kern_mount
-  kern_unmount
-  kill_anon_super
-  kmem_cache_alloc
-  kmem_cache_create
-  kmem_cache_destroy
-  kmem_cache_free
-  kstrdup
-  __list_add_valid
-  __list_del_entry_valid
-  memstart_addr
-  page_mapping
-  prepare_to_wait_event
-  __put_page
-  queue_work_on
-  _raw_read_lock
-  _raw_read_unlock
-  _raw_spin_lock
-  _raw_spin_unlock
-  _raw_write_lock
-  _raw_write_unlock
-  register_shrinker
-  schedule
-  __SetPageMovable
-  system_wq
-  unlock_page
-  unregister_shrinker
-  wait_on_page_bit
-  __wake_up
 
-# preserved by --additions-only
-  android_kmalloc_64_create
+
 task_is_booster
