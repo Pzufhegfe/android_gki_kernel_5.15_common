@@ -170,61 +170,14 @@ jobs:
             sed -i 's/export LOCALVERSION="-maybe-dirty"/export LOCALVERSION=""/' "$STAMP_BZL"
         fi
 
-    - name: Setup KernelSU
+    - name: Check KernelSU in source
       run: |
         cd gki_build_workspace/common
-        KSU_BRANCH="${{ inputs.ksu_branch || 'main' }}"
-        echo "Using KernelSU branch: $KSU_BRANCH"
-        
-        # Manual install to optimize speed (depth=1)
-        # Remove existing directory if it exists
-        rm -rf KernelSU
-        
-        # Clone KernelSU (without --depth=1 to ensure correct version calculation)
-        git clone https://github.com/tiann/KernelSU -b "$KSU_BRANCH" KernelSU
-        
-        # Move KernelSU to drivers directory
-        # Ensure target directory does not exist to avoid moving INTO it
-        rm -rf drivers/KernelSU
-        rm -rf drivers/kernelsu
-        
-        mv KernelSU drivers/KernelSU
-        
-        # Remove KernelSU from .gitignore in the build workspace to ensure Bazel sees it
-        # Bazel respects .gitignore, so if we ignore it there, it won't be in the sandbox
-        if [ -f .gitignore ]; then
-            sed -i '/drivers\/KernelSU/d' .gitignore
-            sed -i '/KernelSU/d' .gitignore
-            echo "Removed KernelSU from .gitignore to fix Bazel sandbox visibility"
+        if [ ! -f drivers/KernelSU/Makefile ]; then
+          echo "drivers/KernelSU/Makefile not found, KernelSU integration is broken."
+          exit 1
         fi
-
-        # Add to drivers/Makefile if not present
-        # We use 'obj-y' to force include it, avoiding Kconfig dependency issues
-        DRIVER_MAKEFILE="drivers/Makefile"
-        if ! grep -q "KernelSU" "$DRIVER_MAKEFILE"; then
-            echo "obj-y += KernelSU/" >> "$DRIVER_MAKEFILE"
-            echo "Added KernelSU to drivers/Makefile"
-        else
-            echo "KernelSU already in drivers/Makefile"
-        fi
-        
-        # Remove Kconfig reference if it exists in drivers/Kconfig
-        # Some GKI kernels might have a stale reference to drivers/kernelsu/Kconfig (lowercase)
-        # which causes build failure if the folder is named KernelSU (CamelCase) or if we don't use Kconfig.
-        # Since we use obj-y in Makefile, we don't strictly need Kconfig entry unless we want menuconfig support.
-        if grep -q "drivers/kernelsu/Kconfig" "drivers/Kconfig"; then
-            sed -i '/drivers\/kernelsu\/Kconfig/d' "drivers/Kconfig"
-            echo "Removed stale drivers/kernelsu/Kconfig reference from drivers/Kconfig"
-        fi
-        
-        # Clean up any potential broken symlinks or stale directories
-        # The error 'symlink has no referent: .../drivers/kernelsu' suggests a broken link or case mismatch
-        rm -rf drivers/kernelsu
-        
-        # Add symbol to KMI allowlist if needed (KernelSU setup.sh usually does this)
-        # We already did this in 'Apply Fixes' step for task_is_booster, 
-        # but let's ensure KernelSU symbols are handled if KSU provides a script.
-        # For GKI 5.15, usually just cloning and makefile edit is enough.
+        echo "KernelSU found: drivers/KernelSU/Makefile"
 
     - name: Build Kernel
       run: |
