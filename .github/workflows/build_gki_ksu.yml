@@ -124,21 +124,6 @@ jobs:
         KSU_VERSION=$(($(git rev-list --count HEAD) + 10200))
         echo "[+] KernelSU version: $KSU_VERSION"
 
-    - name: Symbol magic
-      run: |
-        echo "[+] Adding KernelSU symbols to ABI list"
-        COMMON_ROOT=$GITHUB_WORKSPACE/gki_build_workspace/common
-        KSU_ROOT=$GITHUB_WORKSPACE/KernelSU
-        SYMBOL_LIST=$COMMON_ROOT/android/abi_gki_aarch64
-        
-        if [ -f $SYMBOL_LIST ]; then
-          # Add KernelSU exported symbols
-          if [ -f $KSU_ROOT/kernel/export_symbol.txt ]; then
-            cat $KSU_ROOT/kernel/export_symbol.txt | awk '{sub("[ \t]+","");print "  "$0}' >> $SYMBOL_LIST
-            echo "[+] Added KernelSU symbols from export_symbol.txt"
-          fi
-        fi
-
     - name: Apply Fixes & Configs
       run: |
         cd gki_build_workspace
