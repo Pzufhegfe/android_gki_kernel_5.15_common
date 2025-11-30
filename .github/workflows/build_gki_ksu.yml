@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      ksu_branch:
+        description: 'KernelSU Branch'
+        required: false
+        default: 'main'
+        type: string
   push:
     branches:
       - android13-5.15-2025-07
@@ -14,7 +20,7 @@ jobs:
     
     steps:
     - name: Checkout Source
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         path: android_gki_kernel_5.15_common
 
@@ -109,8 +115,9 @@ jobs:
       run: |
         cd gki_build_workspace/common
         # Run the official setup script to install/update KernelSU
-        # This will fetch the latest KernelSU and patch the kernel if needed
-        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+        KSU_BRANCH="${{ inputs.ksu_branch || 'main' }}"
+        echo "Using KernelSU branch: $KSU_BRANCH"
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/$KSU_BRANCH/kernel/setup.sh" | bash -
 
     - name: Build Kernel
       run: |
@@ -143,7 +150,7 @@ jobs:
         echo "Created AnyKernel3.zip"
 
     - name: Upload Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Kernel-Images
         path: |
