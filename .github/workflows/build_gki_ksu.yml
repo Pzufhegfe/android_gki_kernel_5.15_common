@@ -79,7 +79,9 @@ jobs:
     - name: Link Kernel Source
       run: |
         cd gki_build_workspace
-        ln -s $GITHUB_WORKSPACE/kernel_src common
+        # Use relative path for symlink to avoid Bazel sandbox issues
+        # common -> ../kernel_src
+        ln -s ../kernel_src common
 
     - name: Fix Clang Toolchain
       run: |
