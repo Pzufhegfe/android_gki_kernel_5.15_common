@@ -163,3 +163,8 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+
+# KernelSU
+KernelSU/
+drivers/KernelSU/
+drivers/kernelsu/
