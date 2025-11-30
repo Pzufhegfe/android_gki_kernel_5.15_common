@@ -190,6 +190,14 @@ jobs:
         
         mv KernelSU drivers/KernelSU
         
+        # Remove KernelSU from .gitignore in the build workspace to ensure Bazel sees it
+        # Bazel respects .gitignore, so if we ignore it there, it won't be in the sandbox
+        if [ -f .gitignore ]; then
+            sed -i '/drivers\/KernelSU/d' .gitignore
+            sed -i '/KernelSU/d' .gitignore
+            echo "Removed KernelSU from .gitignore to fix Bazel sandbox visibility"
+        fi
+
         # Add to drivers/Makefile if not present
         # We use 'obj-y' to force include it, avoiding Kconfig dependency issues
         DRIVER_MAKEFILE="drivers/Makefile"
