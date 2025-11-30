@@ -19,41 +19,44 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
     
     steps:
-    - name: Checkout Source
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 8192
+        temp-reserve-mb: 2048
+        remove-dotnet: "true"
+        remove-android: "true"
+        remove-haskell: "true"
+        remove-codeql: "true"
+
+    - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
         path: kernel_src
 
-    - name: Free Disk Space
-      run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /opt/ghc
-        sudo rm -rf "/usr/local/share/boost"
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
+    - name: Checkout KernelSU
+      uses: actions/checkout@v4
+      with:
+        repository: tiann/KernelSU
+        ref: ${{ inputs.ksu_branch || 'main' }}
+        path: KernelSU
+        fetch-depth: 0
 
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y git zip unzip curl wget python3 bc rsync schedtool cpio ncurses-dev libxml2-utils inetutils-ping build-essential python3-pip
-        
-        # Install mkbootimg from AOSP
-        git clone https://android.googlesource.com/platform/system/tools/mkbootimg
-        chmod +x mkbootimg/mkbootimg.py
-        sudo mv mkbootimg/mkbootimg.py /usr/local/bin/mkbootimg
-        rm -rf mkbootimg
-
-        # Install Repo
-        mkdir -p ~/.bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
-        chmod a+rx ~/.bin/repo
-        echo "$HOME/.bin" >> $GITHUB_PATH
+        sudo apt-get install -y git zip unzip curl wget python3 bc rsync schedtool cpio ncurses-dev libxml2-utils build-essential python3-pip repo
 
     - name: Setup Build Environment
       run: |
+        echo "Free space:"
+        df -h
         mkdir -p gki_build_workspace
         cd gki_build_workspace
         
@@ -62,7 +65,7 @@ jobs:
         git config --global user.email "action@github.com"
         
         # Initialize repo with depth 1 to save time and space
-        repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15 --depth=1
+        repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15 --repo-rev=v2.16
         
         mkdir -p .repo/local_manifests
         # Remove the default kernel/common to replace with ours
@@ -74,63 +77,66 @@ jobs:
         EOF
         
         # Sync only necessary parts
-        repo sync -c -j$(nproc) --no-tags --no-clone-bundle
+        repo --trace sync -c -j$(nproc --all) --no-tags
+        df -h
 
     - name: Link Kernel Source
       run: |
         cd gki_build_workspace
-        # Ensure common directory is clean before copying to avoid nesting (e.g. common/kernel_src)
+        # Ensure common directory is clean before copying
         rm -rf common
-        # Copy instead of symlink to avoid Bazel sandbox issues completely
+        # Copy kernel source
         cp -r ../kernel_src common
 
-    - name: Fix Clang Toolchain
+    - name: Setup KernelSU
       run: |
-        cd gki_build_workspace
-        CLANG_DIR="prebuilts/clang/host/linux-x86"
-        CLANG_VER="clang-r547379"
+        cd gki_build_workspace/common
+        KSU_BRANCH="${{ inputs.ksu_branch || 'main' }}"
+        echo "[+] Using KernelSU branch: $KSU_BRANCH"
         
-        # Check if Clang exists
-        if [ ! -d "$CLANG_DIR/$CLANG_VER" ]; then
-            echo "Clang $CLANG_VER not found in workspace. Downloading..."
-            mkdir -p "$CLANG_DIR/$CLANG_VER"
-            
-            # Try downloading tarball from Google Source (Much faster than git fetch)
-            # Try 'master' branch first, then 'main'
-            DOWNLOAD_SUCCESS=false
-            for BRANCH in master main; do
-                echo "Attempting to download tarball from $BRANCH..."
-                if curl -fL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/$BRANCH/$CLANG_VER.tar.gz" -o clang.tar.gz; then
-                    echo "Download success from $BRANCH."
-                    DOWNLOAD_SUCCESS=true
-                    break
-                fi
-            done
-            
-            if [ "$DOWNLOAD_SUCCESS" = true ]; then
-                echo "Extracting..."
-                tar -xzf clang.tar.gz -C "$CLANG_DIR/$CLANG_VER"
-                rm clang.tar.gz
-            else
-                echo "Tarball download failed. Falling back to slow git fetch..."
-                # Fallback to git fetch
-                cd "$CLANG_DIR"
-                if [ ! -d ".git" ]; then
-                    git init
-                    git remote add origin "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
-                fi
-                git fetch --depth 1 origin master
-                git checkout FETCH_HEAD -- "$CLANG_VER"
-                cd ../../../..
-            fi
-            
-            # Create BUILD file for Bazel if missing
-            if [ ! -f "$CLANG_DIR/$CLANG_VER/BUILD" ] && [ ! -f "$CLANG_DIR/$CLANG_VER/BUILD.bazel" ]; then
-                echo "Creating dummy BUILD file for Clang..."
-                touch "$CLANG_DIR/$CLANG_VER/BUILD"
-            fi
-        else
-            echo "Clang $CLANG_VER already exists."
+        # Remove any existing KernelSU directories to avoid conflicts
+        rm -rf drivers/KernelSU drivers/kernelsu KernelSU
+        
+        # Link KernelSU kernel driver (use lowercase 'kernelsu' like official)
+        echo "[+] Linking KernelSU driver to drivers/kernelsu"
+        ln -sf $GITHUB_WORKSPACE/KernelSU/kernel drivers/kernelsu
+        
+        # Update drivers/Makefile
+        DRIVER_MAKEFILE="drivers/Makefile"
+        # Remove old KernelSU entries first
+        sed -i '/KernelSU/d' "$DRIVER_MAKEFILE"
+        sed -i '/kernelsu/d' "$DRIVER_MAKEFILE"
+        # Add new entry
+        echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_MAKEFILE"
+        echo "[+] Updated drivers/Makefile"
+        
+        # Update drivers/Kconfig
+        DRIVER_KCONFIG="drivers/Kconfig"
+        # Remove old entries
+        sed -i '/KernelSU/d' "$DRIVER_KCONFIG"
+        sed -i '/kernelsu/d' "$DRIVER_KCONFIG"
+        # Add new entry before endmenu
+        sed -i '/^endmenu$/i source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
+        echo "[+] Updated drivers/Kconfig"
+        
+        # Show KernelSU version
+        cd $GITHUB_WORKSPACE/KernelSU
+        KSU_VERSION=$(($(git rev-list --count HEAD) + 10200))
+        echo "[+] KernelSU version: $KSU_VERSION"
+
+    - name: Symbol magic
+      run: |
+        echo "[+] Adding KernelSU symbols to ABI list"
+        COMMON_ROOT=$GITHUB_WORKSPACE/gki_build_workspace/common
+        KSU_ROOT=$GITHUB_WORKSPACE/KernelSU
+        SYMBOL_LIST=$COMMON_ROOT/android/abi_gki_aarch64
+        
+        if [ -f $SYMBOL_LIST ]; then
+          # Add KernelSU exported symbols
+          if [ -f $KSU_ROOT/kernel/export_symbol.txt ]; then
+            cat $KSU_ROOT/kernel/export_symbol.txt | awk '{sub("[ \t]+","");print "  "$0}' >> $SYMBOL_LIST
+            echo "[+] Added KernelSU symbols from export_symbol.txt"
+          fi
         fi
 
     - name: Apply Fixes & Configs
@@ -170,57 +176,117 @@ jobs:
             sed -i 's/export LOCALVERSION="-maybe-dirty"/export LOCALVERSION=""/' "$STAMP_BZL"
         fi
 
-    - name: Check KernelSU in source
+    - name: Make working directory clean
       run: |
         cd gki_build_workspace/common
-        if [ ! -f drivers/KernelSU/Makefile ]; then
-          echo "drivers/KernelSU/Makefile not found, KernelSU integration is broken."
-          exit 1
-        fi
-        echo "KernelSU found: drivers/KernelSU/Makefile"
+        # Commit all changes so Bazel sandbox can see them
+        git add -A
+        git commit -m "Add KernelSU and apply fixes" || echo "Nothing to commit"
+        repo status || true
 
     - name: Build Kernel
       run: |
         cd gki_build_workspace
-        # Build command
-        tools/bazel build //common:kernel_aarch64_dist --config=fast
+        # Set KernelSU expected size/hash if available
+        if [ ! -z "${{ vars.EXPECTED_SIZE }}" ] && [ ! -z "${{ vars.EXPECTED_HASH }}" ]; then
+          export KSU_EXPECTED_SIZE=${{ vars.EXPECTED_SIZE }}
+          export KSU_EXPECTED_HASH=${{ vars.EXPECTED_HASH }}
+        fi
+        # Build with Bazel
+        tools/bazel run --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
 
     - name: Package Kernel
       run: |
         cd gki_build_workspace
         
-        # Find the built Image
-        KERNEL_IMAGE=$(find out/ -name Image | head -n 1)
-        echo "Found Kernel Image: $KERNEL_IMAGE"
+        # Find output directory
+        OUTDIR="dist"
+        if [ ! -d "$OUTDIR" ]; then
+          OUTDIR=$(find out/ -type d -name "dist" | head -n 1)
+        fi
+        echo "Output directory: $OUTDIR"
         
-        # 1. Create boot.img
-        # GKI usually uses header version 4
-        mkbootimg --kernel "$KERNEL_IMAGE" --header_version 4 --output boot.img
-        echo "Created boot.img"
+        # Get KernelSU version
+        cd $GITHUB_WORKSPACE/KernelSU
+        KSU_VERSION=$(($(git rev-list --count HEAD) + 10200))
+        cd $GITHUB_WORKSPACE/gki_build_workspace
         
-        # 2. Create AnyKernel3.zip
-        git clone https://github.com/osm0sis/AnyKernel3
+        # Create output folder
+        mkdir -p output
+        cp $OUTDIR/Image ./output/
+        cp $OUTDIR/Image.lz4 ./output/ 2>/dev/null || true
+        cp $OUTDIR/Image.gz ./output/ 2>/dev/null || true
+        
+        # Download boot image tools
+        AOSP_MIRROR=https://android.googlesource.com
+        BRANCH=main-kernel-build-2024
+        git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
+        git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg-tools
+        
+        export AVBTOOL=$GITHUB_WORKSPACE/gki_build_workspace/kernel-build-tools/linux-x86/bin/avbtool
+        export MKBOOTIMG=$GITHUB_WORKSPACE/gki_build_workspace/mkbootimg-tools/mkbootimg.py
+        export GZIP=$GITHUB_WORKSPACE/gki_build_workspace/kernel-build-tools/path/linux-x86/gzip
+        
+        # Create boot.img
+        echo "[+] Building boot.img"
+        $MKBOOTIMG --header_version 4 --kernel $OUTDIR/Image --output boot.img
+        $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+        
+        # Create boot-gz.img if Image.gz exists
+        if [ -f "$OUTDIR/Image.gz" ]; then
+          echo "[+] Building boot-gz.img"
+          $MKBOOTIMG --header_version 4 --kernel $OUTDIR/Image.gz --output boot-gz.img
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+        fi
+        
+        # Create boot-lz4.img if Image.lz4 exists
+        if [ -f "$OUTDIR/Image.lz4" ]; then
+          echo "[+] Building boot-lz4.img"
+          $MKBOOTIMG --header_version 4 --kernel $OUTDIR/Image.lz4 --output boot-lz4.img
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+        fi
+        
+        # Compress boot images
+        for img in boot*.img; do
+          if [ -f "$img" ]; then
+            gzip -n -f -9 "$img"
+          fi
+        done
+        
+        # Create AnyKernel3 package
+        echo "[+] Creating AnyKernel3 package"
+        git clone https://github.com/Kernel-SU/AnyKernel3 --depth 1
         rm -rf AnyKernel3/.git
-        cp "$KERNEL_IMAGE" AnyKernel3/
+        cp $OUTDIR/Image AnyKernel3/
         
-        # Custom AnyKernel3 config if exists in repo root
+        # Custom AnyKernel3 config if exists
         if [ -f "common/anykernel.sh" ]; then
             cp "common/anykernel.sh" AnyKernel3/
             echo "Applied custom anykernel.sh"
         fi
         
-        # Create zip
         cd AnyKernel3
-        zip -r9 ../AnyKernel3.zip * -x .git README.md *placeholder
+        zip -r9 ../AnyKernel3-android13-5.15-ksu${KSU_VERSION}.zip * -x .git README.md *placeholder
         cd ..
-        echo "Created AnyKernel3.zip"
+        
+        echo "[+] Package complete!"
+        ls -la *.gz *.zip 2>/dev/null || true
 
-    - name: Upload Artifacts
+    - name: Upload Image
       uses: actions/upload-artifact@v4
       with:
-        name: Kernel-Images
-        path: |
-          gki_build_workspace/out/**/dist/Image
-          gki_build_workspace/boot.img
-          gki_build_workspace/AnyKernel3.zip
-        retention-days: 5
+        name: Image-android13-5.15
+        path: gki_build_workspace/output/*
+
+    - name: Upload Boot Images
+      uses: actions/upload-artifact@v4
+      with:
+        name: boot-images-android13-5.15
+        path: gki_build_workspace/*.img.gz
+
+    - name: Upload AnyKernel3
+      uses: actions/upload-artifact@v4
+      with:
+        name: AnyKernel3-android13-5.15
+        path: gki_build_workspace/AnyKernel3-*.zip
+        retention-days: 7
