@@ -81,6 +81,29 @@ jobs:
         cd gki_build_workspace
         ln -s $GITHUB_WORKSPACE/android_gki_kernel_5.15_common common
 
+    - name: Fix Clang Toolchain
+      run: |
+        cd gki_build_workspace
+        CLANG_DIR="prebuilts/clang/host/linux-x86"
+        CLANG_VER="clang-r547379"
+        
+        # Check if Clang exists, if not, fetch it manually
+        if [ ! -d "$CLANG_DIR/$CLANG_VER" ]; then
+            echo "Clang $CLANG_VER not found. Fetching manually..."
+            mkdir -p "$CLANG_DIR"
+            cd "$CLANG_DIR"
+            git init
+            git remote add origin "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
+            git fetch --depth 1 origin master
+            git checkout FETCH_HEAD -- "$CLANG_VER"
+            
+            # Create BUILD file for Bazel if missing
+            if [ ! -f "$CLANG_VER/BUILD" ] && [ ! -f "$CLANG_VER/BUILD.bazel" ]; then
+                echo "Creating dummy BUILD file for Clang..."
+                touch "$CLANG_VER/BUILD"
+            fi
+        fi
+
     - name: Apply Fixes & Configs
       run: |
         cd gki_build_workspace
