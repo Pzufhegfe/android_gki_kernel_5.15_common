@@ -195,6 +195,15 @@ jobs:
             echo "KernelSU already in drivers/Makefile"
         fi
         
+        # Remove Kconfig reference if it exists in drivers/Kconfig
+        # Some GKI kernels might have a stale reference to drivers/kernelsu/Kconfig (lowercase)
+        # which causes build failure if the folder is named KernelSU (CamelCase) or if we don't use Kconfig.
+        # Since we use obj-y in Makefile, we don't strictly need Kconfig entry unless we want menuconfig support.
+        if grep -q "drivers/kernelsu/Kconfig" "drivers/Kconfig"; then
+            sed -i '/drivers\/kernelsu\/Kconfig/d' "drivers/Kconfig"
+            echo "Removed stale drivers/kernelsu/Kconfig reference from drivers/Kconfig"
+        fi
+        
         # Add symbol to KMI allowlist if needed (KernelSU setup.sh usually does this)
         # We already did this in 'Apply Fixes' step for task_is_booster, 
         # but let's ensure KernelSU symbols are handled if KSU provides a script.
