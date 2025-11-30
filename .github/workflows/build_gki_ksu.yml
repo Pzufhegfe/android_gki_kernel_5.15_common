@@ -182,7 +182,10 @@ jobs:
         git clone https://github.com/tiann/KernelSU -b "$KSU_BRANCH" KernelSU
         
         # Move KernelSU to drivers directory
-        # The build system expects drivers/KernelSU/Makefile to exist
+        # Ensure target directory does not exist to avoid moving INTO it
+        rm -rf drivers/KernelSU
+        rm -rf drivers/kernelsu
+        
         mv KernelSU drivers/KernelSU
         
         # Add to drivers/Makefile if not present
