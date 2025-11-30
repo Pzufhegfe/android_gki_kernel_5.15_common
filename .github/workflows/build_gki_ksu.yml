@@ -24,7 +24,7 @@ jobs:
     - name: Checkout Source
       uses: actions/checkout@v4
       with:
-        path: android_gki_kernel_5.15_common
+        path: kernel_src
 
     - name: Free Disk Space
       run: |
@@ -79,7 +79,7 @@ jobs:
     - name: Link Kernel Source
       run: |
         cd gki_build_workspace
-        ln -s $GITHUB_WORKSPACE/android_gki_kernel_5.15_common common
+        ln -s $GITHUB_WORKSPACE/kernel_src common
 
     - name: Fix Clang Toolchain
       run: |
@@ -89,26 +89,33 @@ jobs:
         
         # Check if Clang exists
         if [ ! -d "$CLANG_DIR/$CLANG_VER" ]; then
-            echo "Clang $CLANG_VER not found."
+            echo "Clang $CLANG_VER not found in workspace. Downloading..."
             mkdir -p "$CLANG_DIR/$CLANG_VER"
             
             # Try downloading tarball from Google Source (Much faster than git fetch)
-            echo "Attempting to download tarball..."
-            if curl -fL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/master/$CLANG_VER.tar.gz" -o clang.tar.gz; then
-                echo "Download success. Extracting..."
+            # Try 'master' branch first, then 'main'
+            DOWNLOAD_SUCCESS=false
+            for BRANCH in master main; do
+                echo "Attempting to download tarball from $BRANCH..."
+                if curl -fL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/$BRANCH/$CLANG_VER.tar.gz" -o clang.tar.gz; then
+                    echo "Download success from $BRANCH."
+                    DOWNLOAD_SUCCESS=true
+                    break
+                fi
+            done
+            
+            if [ "$DOWNLOAD_SUCCESS" = true ]; then
+                echo "Extracting..."
                 tar -xzf clang.tar.gz -C "$CLANG_DIR/$CLANG_VER"
                 rm clang.tar.gz
             else
-                echo "Tarball download failed (404 or error). Falling back to slow git fetch..."
+                echo "Tarball download failed. Falling back to slow git fetch..."
                 # Fallback to git fetch
                 cd "$CLANG_DIR"
-                # If git init already done by repo, use it, else init
                 if [ ! -d ".git" ]; then
                     git init
                     git remote add origin "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
                 fi
-                # Fetch only the specific directory if possible, but sparse checkout is complex with shallow
-                # Just fetch depth 1 of master is the most reliable fallback
                 git fetch --depth 1 origin master
                 git checkout FETCH_HEAD -- "$CLANG_VER"
                 cd ../../../..
