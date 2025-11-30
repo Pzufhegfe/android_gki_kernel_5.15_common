@@ -1,0 +1,16 @@
+
+#
+# Android GKI & Build Artifacts
+#
+/out/
+/dist/
+/gki_build_workspace/
+/AnyKernel3/
+/AnyKernel3.zip
+/unpack_temp/
+/common
+/common_backup_*
+/.repo/
+/local_manifests/
+*.log
+bazel-*

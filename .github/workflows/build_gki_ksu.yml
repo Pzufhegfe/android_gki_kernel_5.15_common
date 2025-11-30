@@ -36,8 +36,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git zip unzip curl wget python3 bc rsync schedtool cpio ncurses-dev libxml2-utils inetutils-ping build-essential python3-pip
         
-        # Install mkbootimg
-        sudo pip3 install mkbootimg
+        # Install mkbootimg from AOSP
+        git clone https://android.googlesource.com/platform/system/tools/mkbootimg
+        chmod +x mkbootimg/mkbootimg.py
+        sudo mv mkbootimg/mkbootimg.py /usr/local/bin/mkbootimg
+        rm -rf mkbootimg
 
         # Install Repo
         mkdir -p ~/.bin
