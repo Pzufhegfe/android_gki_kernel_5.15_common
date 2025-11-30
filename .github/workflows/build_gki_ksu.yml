@@ -79,6 +79,8 @@ jobs:
     - name: Link Kernel Source
       run: |
         cd gki_build_workspace
+        # Ensure common directory is clean before copying to avoid nesting (e.g. common/kernel_src)
+        rm -rf common
         # Copy instead of symlink to avoid Bazel sandbox issues completely
         cp -r ../kernel_src common
 
