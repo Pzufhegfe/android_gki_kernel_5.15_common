@@ -261,20 +261,20 @@ jobs:
         # Create boot.img
         echo "[+] Building boot.img"
         $MKBOOTIMG --header_version 4 --kernel $OUTDIR/Image --output boot.img
-        $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+        $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key external-avb/test/data/testkey_rsa2048.pem
         
         # Create boot-gz.img if Image.gz exists
         if [ -f "$OUTDIR/Image.gz" ]; then
           echo "[+] Building boot-gz.img"
           $MKBOOTIMG --header_version 4 --kernel $OUTDIR/Image.gz --output boot-gz.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key external-avb/test/data/testkey_rsa2048.pem
         fi
         
         # Create boot-lz4.img if Image.lz4 exists
         if [ -f "$OUTDIR/Image.lz4" ]; then
           echo "[+] Building boot-lz4.img"
           $MKBOOTIMG --header_version 4 --kernel $OUTDIR/Image.lz4 --output boot-lz4.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key external-avb/test/data/testkey_rsa2048.pem
         fi
         
         # Compress boot images
