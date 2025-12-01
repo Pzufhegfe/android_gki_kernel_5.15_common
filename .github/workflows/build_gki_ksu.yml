@@ -251,12 +251,12 @@ jobs:
         
         # Download boot image tools
         AOSP_MIRROR=https://android.googlesource.com
-        BRANCH=main-kernel-build-2024
-        git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
-        git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg-tools
+        git clone $AOSP_MIRROR/platform/external/avb -b master --depth 1 external-avb
+        git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b master --depth 1 mkbootimg-tools
         
-        export AVBTOOL=$GITHUB_WORKSPACE/gki_build_workspace/kernel-build-tools/linux-x86/bin/avbtool
+        export AVBTOOL=$GITHUB_WORKSPACE/gki_build_workspace/external-avb/avbtool.py
         export MKBOOTIMG=$GITHUB_WORKSPACE/gki_build_workspace/mkbootimg-tools/mkbootimg.py
+        chmod +x $AVBTOOL $MKBOOTIMG
         
         # Create boot.img
         echo "[+] Building boot.img"
