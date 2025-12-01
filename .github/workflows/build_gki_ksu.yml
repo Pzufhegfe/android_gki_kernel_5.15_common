@@ -257,7 +257,6 @@ jobs:
         
         export AVBTOOL=$GITHUB_WORKSPACE/gki_build_workspace/kernel-build-tools/linux-x86/bin/avbtool
         export MKBOOTIMG=$GITHUB_WORKSPACE/gki_build_workspace/mkbootimg-tools/mkbootimg.py
-        GZIP_BIN=$GITHUB_WORKSPACE/gki_build_workspace/kernel-build-tools/path/linux-x86/gzip
         
         # Create boot.img
         echo "[+] Building boot.img"
@@ -279,12 +278,12 @@ jobs:
         fi
         
         # Compress boot images
+        # Compress boot images
         for img in boot*.img; do
           if [ -f "$img" ]; then
-            "$GZIP_BIN" -n -f -9 "$img"
+            gzip -n -f -9 "$img"
           fi
         done
-        
         # Create AnyKernel3 package
         echo "[+] Creating AnyKernel3 package"
         git clone https://github.com/Kernel-SU/AnyKernel3 --depth 1
