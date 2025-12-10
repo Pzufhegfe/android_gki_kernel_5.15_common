@@ -407,15 +407,60 @@ EOF
 
     chmod +x "$ANYKERNEL_DIR/META-INF/com/google/android/update-binary"
     
-    # Copy kernel image to anykernel directory
+    # Copy kernel image到anykernel目录
     cp "$IMAGE_PATH" "$ANYKERNEL_DIR/Image"
-    
-    # Create anykernel.zip
+
+    # 生成标准 anykernel.sh 脚本
+    cat > "$ANYKERNEL_DIR/anykernel.sh" <<'ANYKERNEL_EOF'
+#!/sbin/sh
+
+# AnyKernel3 installer script (standard, minimal)
+
+# Place this file in the root of anykernel.zip
+
+# Set outfd for UI printing
+outfd=$(
+    ps | grep -v "grep" | grep "/sbin/recovery" | awk '{print $2}'
+)
+
+ui_print() {
+    echo -e "ui_print $1\nui_print" > /proc/self/fd/$outfd
+}
+
+ui_print " "
+ui_print "+----------------------------------+"
+ui_print "|     AnyKernel3 Installer         |"
+ui_print "+----------------------------------+"
+ui_print " "
+
+# Extract kernel image
+unzip -o "$ZIPFILE" Image -d /tmp/anykernel || {
+    ui_print "Failed to extract Image"; exit 1;
+}
+
+# Find boot partition (simple, fallback)
+BOOT_PARTITION="/dev/block/by-name/boot"
+
+# Flash kernel (replace as needed for your device)
+dd if=/tmp/anykernel/Image of=$BOOT_PARTITION bs=4096 || {
+    ui_print "Failed to flash kernel"; exit 1;
+}
+
+ui_print " "
+ui_print "Flashing complete!"
+
+exit 0
+ANYKERNEL_EOF
+
+    chmod +x "$ANYKERNEL_DIR/anykernel.sh"
+
+    # 创建 anykernel.zip
     cd "$ANYKERNEL_DIR"
     zip -r "$OUT_DIR/anykernel.zip" . > /dev/null
     cd "$KERNEL_ROOT"
     rm -rf "$ANYKERNEL_DIR"
-    
+
     log "✓ anykernel.zip created: $OUT_DIR/anykernel.zip"
 }
+
 
