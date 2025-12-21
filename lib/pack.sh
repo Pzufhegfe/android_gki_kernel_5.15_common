@@ -8,17 +8,40 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$MODULE_DIR/common.sh"
 
 # Find the built kernel Image
+# ✅ UPDATED: 优先从 dist 目录查找，这是 Bazel run --dist_dir 的标准输出位置
 find_kernel_image() {
-    local image_path=$(find "$WORKSPACE_DIR/out" -name Image 2>/dev/null | head -n 1)
+    # Get script directory to find dist output
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    local dist_dir="$script_dir/out/dist"
+    
+    # First, try dist directory (Bazel run --dist_dir output)
+    local image_path=""
+    if [ -f "$dist_dir/Image" ]; then
+        image_path="$dist_dir/Image"
+    elif [ -f "$dist_dir/Image.gz" ]; then
+        image_path="$dist_dir/Image.gz"
+    fi
+    
+    # Fallback: Try workspace out directory (legacy support)
     if [ -z "$image_path" ]; then
-        # Try alternative locations
+        image_path=$(find "$WORKSPACE_DIR/out" -name Image 2>/dev/null | head -n 1)
+    fi
+    
+    # Fallback: Try alternative locations
+    if [ -z "$image_path" ]; then
         image_path=$(find "$WORKSPACE_DIR" -name Image -path "*/out/*" 2>/dev/null | head -n 1)
     fi
+    
     if [ -z "$image_path" ]; then
-        error "Could not find built Kernel Image in $WORKSPACE_DIR"
+        error "Could not find built Kernel Image"
+        error "Expected locations:"
+        error "  - $dist_dir/Image"
+        error "  - $dist_dir/Image.gz"
+        error "  - $WORKSPACE_DIR/out/Image"
         error "Please run the build first or ensure the build completed successfully."
         exit 1
     fi
+    
     echo "$image_path"
 }
 
@@ -66,10 +89,49 @@ pack_image_artifacts() {
         MKBOOTIMG_CMD="mkbootimg"
     fi
     
+    # Extract cmdline from defconfig if available
+    # Note: For GKI, cmdline is usually provided by bootloader/vendor_boot
+    # So we should use empty cmdline or only minimal parameters
+    CMDLINE=""
+    DEFCONFIG="$KERNEL_ROOT/arch/arm64/configs/gki_defconfig"
+    CMDLINE_EXTEND=""
+    
+    if [ -f "$DEFCONFIG" ]; then
+        # Check if CMDLINE_EXTEND is enabled
+        if grep -q "^CONFIG_CMDLINE_EXTEND=y" "$DEFCONFIG"; then
+            CMDLINE_EXTEND="y"
+            log "CONFIG_CMDLINE_EXTEND=y detected - cmdline will be appended by bootloader"
+        fi
+        
+        # Extract CONFIG_CMDLINE value (remove quotes and CONFIG_CMDLINE=)
+        CMDLINE=$(grep "^CONFIG_CMDLINE=" "$DEFCONFIG" | sed 's/^CONFIG_CMDLINE="\(.*\)"$/\1/' | head -n 1)
+    fi
+    
+    # For GKI, if CMDLINE_EXTEND is enabled, use empty cmdline (bootloader will append)
+    # Otherwise, use cmdline from defconfig
+    if [ "$CMDLINE_EXTEND" = "y" ]; then
+        CMDLINE=""
+        log "Using empty cmdline (CMDLINE_EXTEND=y - bootloader will provide full cmdline)"
+    elif [ -z "$CMDLINE" ]; then
+        # Use empty cmdline for GKI (safer - let bootloader handle it)
+        CMDLINE=""
+        log "Using empty cmdline (GKI standard - bootloader/vendor_boot provides cmdline)"
+    else
+        log "Using cmdline from defconfig: $CMDLINE"
+    fi
+    
     # Create boot.img with header version 4 (GKI Android 13)
+    # GKI boot images typically use:
+    # - base: 0x00000000 (ARM64 standard)
+    # - pagesize: 4096 (standard for most devices)
+    # - cmdline: from defconfig
+    log "Creating boot.img with cmdline: $CMDLINE"
     $MKBOOTIMG_CMD \
         --kernel "$IMAGE_PATH" \
         --header_version 4 \
+        --pagesize 4096 \
+        --base 0x00000000 \
+        --cmdline "$CMDLINE" \
         --output "$BOOT_IMG"
     
     # Add AVB hash footer if avbtool is available
@@ -113,46 +175,86 @@ pack_anykernel() {
 #!/sbin/sh
 # AnyKernel installer script for GKI kernel
 
-# Handle different parameter formats:
-# Standard AnyKernel3: $1=OUTFD, $2=ZIPFILE
-# HorizonKernelFlasher: $1=3, $2=1, $3=ZIPFILE
 if [ -n "$3" ] && [ -f "$3" ]; then
-    # HorizonKernelFlasher format: sh update-binary 3 1 "zip路径"
     OUTFD=$1
     ZIPFILE=$3
 elif [ -n "$2" ] && [ -f "$2" ]; then
-    # Standard AnyKernel3 format: sh update-binary OUTFD ZIPFILE
     OUTFD=$1
     ZIPFILE=$2
 else
-    # Fallback: try to use what we have
-    OUTFD=${1:-3}
-    ZIPFILE=${2:-$3}
+    OUTFD=3
+    ZIPFILE="/tmp/anykernel.zip"
 fi
+
+# Load configuration from anykernel.sh
+# In a real AK3, we source anykernel.sh for variables
+DEVICE_CHECK="fuxi"
 
 ui_print() {
     echo "ui_print $1" >&$OUTFD
-    echo "ui_print" >&$OUTFD
+    echo "ui_print " >&$OUTFD
 }
 
-ui_print " "
-ui_print "AnyKernel GKI Kernel Installer"
-ui_print " "
+show_banner() {
+    ui_print "****************************************"
+    ui_print "*        Serein Kernel Installer       *"
+    ui_print "****************************************"
+    ui_print "  Developer: Serein"
+    ui_print "****************************************"
+}
+
+log_info() { ui_print " [i] $1"; }
+log_step() { ui_print ">>> $1..."; }
+log_done() { ui_print " [✓] $1"; }
+log_warn() { ui_print " [!] Warning: $1"; }
+log_fail() { ui_print " [✗] Error: $1"; }
+
+set_progress() {
+    echo "set_progress $1" >&$OUTFD
+}
+
+show_banner
+set_progress 0.1
+
+# System Information
+log_info "Collecting system information..."
+DEVICE=$(getprop ro.product.model)
+PRODUCT=$(getprop ro.product.device)
+SDK=$(getprop ro.build.version.sdk)
+SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null || echo "N/A")
+
+[ -z "$DEVICE" ] && DEVICE=$(getprop ro.product.model)
+[ -z "$PRODUCT" ] && PRODUCT=$(getprop ro.build.product)
+
+log_info "Device: $DEVICE ($PRODUCT)"
+log_info "Active Slot: $SLOT"
+
+# Device Verification
+if [ -n "$DEVICE_CHECK" ]; then
+    if ! echo "$DEVICE $PRODUCT" | grep -qi "$DEVICE_CHECK"; then
+        log_warn "This kernel is designed for $DEVICE_CHECK."
+        log_warn "Current device is $PRODUCT."
+        ui_print " Proceeding anyway in 3 seconds..."
+        sleep 3
+    fi
+fi
 
 # Extract kernel image
-ui_print "Extracting kernel..."
+log_step "Extracting kernel image"
+set_progress 0.2
 TMPDIR=/tmp/anykernel_$$
 mkdir -p "$TMPDIR"
 cd "$TMPDIR"
 unzip -o "$ZIPFILE" "Image" || {
-    ui_print "Error: Failed to extract Image from zip"
+    log_fail "Failed to extract Image from zip"
     exit 1
 }
 
 if [ ! -f "$TMPDIR/Image" ]; then
-    ui_print "Error: Image not found in zip"
+    log_fail "Image not found in zip"
     exit 1
 fi
+log_done "Kernel extracted successfully"
 
 # Enhanced boot partition detection (boot partition only)
 find_boot_partition() {
@@ -295,75 +397,72 @@ find_boot_partition() {
 
 # Try to use magiskboot if available (most reliable method)
 if command -v magiskboot &> /dev/null; then
-    ui_print "Using magiskboot to repack boot image..."
-    
-    # Debug: List available boot partitions BEFORE searching
-    ui_print "Debug: Checking available boot partitions..."
-    if [ -d "/dev/block/by-name" ]; then
-        for p in /dev/block/by-name/boot*; do
-            if [ -e "$p" ] || [ -L "$p" ] || [ -b "$p" ]; then
-                ui_print "  Found: $p"
-            fi
-        done
-    fi
-    if [ -d "/dev/block/bootdevice/by-name" ]; then
-        for p in /dev/block/bootdevice/by-name/boot*; do
-            if [ -e "$p" ] || [ -L "$p" ] || [ -b "$p" ]; then
-                ui_print "  Found: $p"
-            fi
-        done
-    fi
+    log_step "Using magiskboot to repack boot image"
+    set_progress 0.3
     
     # Find boot partition using enhanced detection
     BOOT_PARTITION=$(find_boot_partition)
+    set_progress 0.4
     
     if [ -z "$BOOT_PARTITION" ]; then
-        ui_print "Error: Boot partition not found"
-        ui_print "Tried multiple detection methods"
-        ui_print "Please check your device's partition layout"
+        log_fail "Boot partition not found after multiple attempts"
         exit 1
     fi
     
-    # Verify the partition exists (try multiple methods)
+    # Verify the partition exists
     if [ ! -e "$BOOT_PARTITION" ] && [ ! -L "$BOOT_PARTITION" ] && [ ! -b "$BOOT_PARTITION" ]; then
-        ui_print "Error: Boot partition not accessible: $BOOT_PARTITION"
-        ui_print "Please check your device's partition layout"
+        log_fail "Boot partition not accessible: $BOOT_PARTITION"
         exit 1
     fi
     
-    ui_print "Backing up boot partition..."
-    dd if="$BOOT_PARTITION" of="$TMPDIR/boot.img" bs=4096 || {
-        ui_print "Error: Failed to read boot partition"
+    log_info "Target partition: $BOOT_PARTITION"
+    
+    log_step "Backing up current boot image"
+    set_progress 0.5
+    BACKUP_FILE="/sdcard/boot_backup_$(date +%H%M%S).img"
+    if dd if="$BOOT_PARTITION" of="$BACKUP_FILE" bs=4096 2>/dev/null; then
+        log_info "Backup saved to: $BACKUP_FILE"
+    else
+        dd if="$BOOT_PARTITION" of="$TMPDIR/boot.img" bs=4096
+        log_info "Backup saved to temp directory"
+    fi
+    
+    log_step "Unpacking boot image"
+    set_progress 0.6
+    magiskboot unpack "$TMPDIR/boot.img" 2>/dev/null || \
+    magiskboot unpack "$BACKUP_FILE" 2>/dev/null || {
+        log_fail "Failed to unpack boot image"
         exit 1
     }
     
-    ui_print "Unpacking boot image..."
-    magiskboot unpack "$TMPDIR/boot.img" || {
-        ui_print "Error: Failed to unpack boot image"
-        exit 1
-    }
+    log_step "Replacing kernel"
+    set_progress 0.7
+    [ -f "$TMPDIR/Image" ] && cp "$TMPDIR/Image" "$TMPDIR/kernel"
     
-    ui_print "Replacing kernel..."
-    cp "$TMPDIR/Image" "$TMPDIR/kernel" || {
-        ui_print "Error: Failed to copy kernel"
-        exit 1
-    }
-    
-    ui_print "Repacking boot image..."
+    log_step "Repacking boot image"
+    set_progress 0.8
     magiskboot repack "$TMPDIR/boot.img" "$TMPDIR/boot_new.img" || {
-        ui_print "Error: Failed to repack boot image"
+        log_fail "Failed to repack boot image"
         exit 1
     }
     
-    ui_print "Flashing new boot image..."
+    log_step "Flashing to $BOOT_PARTITION"
+    set_progress 0.9
     dd if="$TMPDIR/boot_new.img" of="$BOOT_PARTITION" bs=4096 || {
-        ui_print "Error: Failed to write boot partition"
+        log_fail "Flash failed"
         exit 1
     }
     
-    ui_print " "
-    ui_print "Kernel flashed successfully!"
+    log_done "Flashing complete"
+    set_progress 1.0
+    
+    # Cleanup
+    cd /
     rm -rf "$TMPDIR"
+    ui_print " "
+    ui_print "****************************************"
+    ui_print "*     Kernel Flashed Successfully!     *"
+    ui_print "****************************************"
     exit 0
 fi
 
@@ -378,44 +477,66 @@ if [ -d "/tmp/AIK" ] || [ -d "/data/local/tmp/AIK" ]; then
 fi
 
 # Final fallback: Direct flash (risky, device-specific)
-ui_print "Warning: Using direct flash method (may not work on all devices)"
-ui_print "This method is device-specific and may cause bootloop!"
+log_warn "Using direct flash method (risky, may cause bootloop)"
 
 BOOT_PARTITION=$(find_boot_partition)
 
 if [ -z "$BOOT_PARTITION" ] || [ ! -e "$BOOT_PARTITION" ]; then
-    ui_print "Error: Boot partition not found"
-    ui_print "Please use magiskboot or AIK method"
-    ui_print "Or check your device's partition layout manually"
+    log_fail "Boot partition not found"
     exit 1
 fi
 
-ui_print "Direct flashing kernel (offset may vary by device)..."
-# This is device-specific and may need adjustment
+log_step "Directly flashing kernel to $BOOT_PARTITION"
 dd if="$TMPDIR/Image" of="$BOOT_PARTITION" bs=4096 seek=2048 conv=notrunc || {
-    ui_print "Error: Direct flash failed"
-    ui_print "Please use a recovery with magiskboot support"
+    log_fail "Direct flash failed"
     exit 1
 }
 
-ui_print " "
-ui_print "Kernel flashed (direct method)"
-ui_print "If device doesn't boot, restore from backup!"
+log_done "Kernel flashed (direct method)"
+ui_print "Reflash current kernel if device fails to boot!"
 
 rm -rf "$TMPDIR"
 EOF
 
     chmod +x "$ANYKERNEL_DIR/META-INF/com/google/android/update-binary"
     
-    # Copy kernel image to anykernel directory
+    # Copy kernel image到anykernel目录
     cp "$IMAGE_PATH" "$ANYKERNEL_DIR/Image"
-    
-    # Create anykernel.zip
+
+    # 生成符合 AK3 标准的 anykernel.sh (作为描述文件和备用脚本)
+    ANYKERNEL_BUILD_DATE=$(date +%Y-%m-%d)
+    cat > "$ANYKERNEL_DIR/anykernel.sh" <<ANYKERNEL_EOF
+# AnyKernel3 Properties
+do.devicecheck=1
+do.modules=0
+do.cleanup=1
+do.cleanuponabort=0
+device.name1=fuxi
+device.name2=xiaomi13
+supported.versions=13, 14
+supported.patchlevels=
+
+# Built by Serein Build System
+build.date=$ANYKERNEL_BUILD_DATE
+kernel.string=Serein GKI Kernel for Xiaomi 13
+
+# Simple logic for shells that source anykernel.sh
+if [ "\$1" != "setup" ]; then
+    ui_print " "
+    ui_print "Running backup anykernel.sh logic..."
+    # ... (简化的逻辑可放在这)
+fi
+ANYKERNEL_EOF
+
+    chmod +x "$ANYKERNEL_DIR/anykernel.sh"
+
+    # 创建 anykernel.zip
     cd "$ANYKERNEL_DIR"
     zip -r "$OUT_DIR/anykernel.zip" . > /dev/null
     cd "$KERNEL_ROOT"
     rm -rf "$ANYKERNEL_DIR"
-    
+
     log "✓ anykernel.zip created: $OUT_DIR/anykernel.zip"
 }
+
 
